@@ -7,5 +7,8 @@ int main(int argc, const char** argv) {
     (void)argc;
     (void)argv;
 
-    printf("future_test: %d\n", ftr_runtest());
+    if (ftr_runtest()) {
+        return EXIT_SUCCESS;
+    }
+    return EXIT_FAILURE;
 }

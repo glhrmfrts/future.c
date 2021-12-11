@@ -65,25 +65,27 @@ struct ftr_header {
     atomic_bool is_valid;
     bool is_set;
     size_t value_size;
+    size_t in_offs;
+    size_t out_offs;
 };
 
-#define ftr_of(ValueType) struct { struct ftr_header header; ValueType value; }
+#define ftr_of(ValueType) struct { struct ftr_header header; ValueType in_value; ValueType out_value; }
 
-#define ftr_new(FT) ((FT*)ftr_new_(sizeof(((FT*)0)->value)))
+#define ftr_new(FT) ((FT*)ftr_new_(sizeof(FT), sizeof(((FT*)0)->out_value), offsetof(FT, in_value), offsetof(FT, out_value)))
 
-#define ftr_init(FT, future) (ftr_init_((struct ftr_header*)(future), sizeof(FT)))
+#define ftr_init(FT, future) (ftr_init_((struct ftr_header*)(future), sizeof(((FT*)0)->out_value)), offsetof(FT, in_value), offsetof(FT, out_value))
 
-#define ftr_get(future, timeout_ms, dest) (ftr_get_((struct ftr_header*)(future), (timeout_ms), (void*)(dest), sizeof(*(dest)), sizeof((*(dest))=future->value)))
+#define ftr_get(future, timeout_ms, dest) (ftr_get_((struct ftr_header*)(future), (timeout_ms), (void*)(dest), sizeof(*(dest)), sizeof((*(dest))=future->out_value)))
 
-#define ftr_complete(future, val) (future->value=(val), ftr_complete_((struct ftr_header*)(future)))
+#define ftr_complete(future, val) ((future)->in_value=(val), ftr_complete_((struct ftr_header*)(future)))
 
 #define ftr_destroy(future) (ftr_destroy_((struct ftr_header*)(future)))
 
 #define ftr_delete(future) (ftr_delete_((struct ftr_header*)(future)))
 
-int ftr_init_(struct ftr_header* fh, size_t size);
+int ftr_init_(struct ftr_header* fh, size_t vsize, size_t in_offs, size_t out_offs);
 
-struct ftr_header* ftr_new_(size_t size);
+struct ftr_header* ftr_new_(size_t wholesize, size_t vsize, size_t in_offs, size_t out_offs);
 
 void ftr_destroy_(struct ftr_header* fh);
 
@@ -99,10 +101,12 @@ const char* ftr_errorstr(int err);
 
 #ifdef ftr_implementation
 
-int ftr_init_(struct ftr_header* fh, size_t vsize) {
+int ftr_init_(struct ftr_header* fh, size_t vsize, size_t in_offs, size_t out_offs) {
     fh->is_valid = true;
     fh->is_set = false;
     fh->value_size = vsize;
+    fh->in_offs = in_offs;
+    fh->out_offs = out_offs;
     if (cnd_init(&fh->cvar)) {
         return ftr_error;
     }
@@ -112,9 +116,9 @@ int ftr_init_(struct ftr_header* fh, size_t vsize) {
     return ftr_success;
 }
 
-struct ftr_header* ftr_new_(size_t vsize) {
-    struct ftr_header* fh = calloc(1, sizeof(struct ftr_header) + vsize);
-    int err = ftr_init_(fh, vsize);
+struct ftr_header* ftr_new_(size_t wholesize, size_t vsize, size_t in_offs, size_t out_offs) {
+    struct ftr_header* fh = calloc(1, wholesize);
+    int err = ftr_init_(fh, vsize, in_offs, out_offs);
     if (err) {
         fprintf(stderr, "error initializing future: %s", ftr_errorstr(err));
         return NULL;
@@ -175,7 +179,7 @@ int ftr_get_(struct ftr_header* fh, int32_t timeout_ms, void* dest, size_t dest_
         return err;
     }
 
-    void* src = (void*)(fh + 1);
+    void* src = (void*)((uint8_t*)(fh) + fh->out_offs); // Out value
     memcpy(dest, src, fh->value_size);
 
     fh->is_valid = false;
@@ -183,10 +187,15 @@ int ftr_get_(struct ftr_header* fh, int32_t timeout_ms, void* dest, size_t dest_
 }
 
 int ftr_complete_(struct ftr_header* fh) {
-    if (!fh->is_valid) { return ftr_invalid; }
+    if ((!fh->is_valid) || fh->is_set) { return ftr_invalid; }
     
     mtx_lock(&fh->mtx);
+    
+    void* src = (void*)((uint8_t*)(fh) + fh->in_offs); // In value
+    void* dest = (void*)((uint8_t*)(fh) + fh->out_offs); // Out value
+    memcpy(dest, src, fh->value_size);
     fh->is_set = true;
+
     cnd_signal(&fh->cvar);
     mtx_unlock(&fh->mtx);
 
@@ -251,7 +260,8 @@ bool ftr_test_samethread() {
     
     int_future_t* fut = ftr_new(int_future_t);
     assert(fut);
-    assert(fut->value == 0 || !"value is zero initialized");
+    assert(fut->in_value == 0 || !"value is zero initialized");
+    assert(fut->out_value == 0 || !"value is zero initialized");
     assert(fut->header.is_valid || !"is valid");
 
     ftr_complete(fut, 42);
@@ -370,6 +380,55 @@ bool ftr_test_tryagain() {
     return true;
 }
 
+struct data {
+    char name[64];
+    int x;
+    int y;
+};
+
+typedef ftr_of(struct data) data_future_t;
+
+int run_async_task_struct(void* arg) {
+    data_future_t* fut = arg;
+    thrd_sleep(&(struct timespec){.tv_sec=2}, NULL);
+
+    struct data mydata = { "foobar", 200, 400 };
+    int err = ftr_complete(fut, mydata);
+    if (err) {
+        fprintf(stderr, "error completing future: %s\n", ftr_errorstr(err));
+        return 1;
+    }
+    return 0;
+}
+
+bool ftr_test_struct() {
+    printf("ftr_test_struct\n");
+
+    data_future_t* fut = ftr_new(data_future_t);
+
+    thrd_t thread = {0};
+
+    thrd_create(&thread, run_async_task_struct, fut);
+   
+    struct data result;
+    int err = ftr_get(fut, 4 * 1000, &result);
+    assert(err == ftr_success);
+    if (err) {
+        fprintf(stderr, "error waiting future: %s\n", ftr_errorstr(err));
+        thrd_join(thread, NULL);
+        ftr_delete(fut);
+        return false;
+    }
+ 
+    assert(!strcmp(result.name, "foobar"));
+    assert(result.x == 200);
+    assert(result.y == 400);
+
+    thrd_join(thread, NULL);
+    ftr_delete(fut);
+    return true;
+}
+
 bool ftr_runtest() {
     return (
         ftr_test_valuesize() &&
@@ -377,7 +436,8 @@ bool ftr_runtest() {
         ftr_test_samethread() &&
         ftr_test_success() &&
         ftr_test_timedout() &&
-        ftr_test_tryagain()
+        ftr_test_tryagain() &&
+        ftr_test_struct()
     );
 }
 
