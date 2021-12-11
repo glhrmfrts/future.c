@@ -1,6 +1,6 @@
 # future.c
 
-Single file, header-only library implementing a **future**-type for C.
+Single file, header-only library implementing a **future**-type for C11.
 
 ## Usage
 
