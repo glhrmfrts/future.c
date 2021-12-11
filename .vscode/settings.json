@@ -1,7 +1,0 @@
-{
-    "files.associations": {
-        "*.qc": "c",
-        "*.cb": "carbon",
-        "type_traits": "c"
-    }
-}
