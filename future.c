@@ -220,7 +220,7 @@ bool ftr_runtest_success() {
     thrd_create(&thread, run_async_task, fut);
    
     int result;
-    int err = ftr_get(fut, 10.0 * 1000.0, &result);
+    int err = ftr_get(fut, 10 * 1000, &result);
     assert(err == ftr_success);
     if (err) {
         fprintf(stderr, "error waiting future: %s\n", ftr_errorstr(err));
@@ -247,7 +247,7 @@ bool ftr_runtest_error() {
     thrd_create(&thread, run_async_task_veryslow, fut);
    
     int result;
-    int err = ftr_get(fut, 10.0 * 1000.0, &result);
+    int err = ftr_get(fut, 10 * 1000, &result);
     assert(err == ftr_timedout);
     if (err) {
         fprintf(stderr, "error waiting future: %s\n", ftr_errorstr(err));
