@@ -75,6 +75,8 @@ struct ftr_header {
 
 #define ftr_init(FT, future) (ftr_init_((struct ftr_header*)(future), sizeof(((FT*)0)->out_value)), offsetof(FT, in_value), offsetof(FT, out_value))
 
+#define ftr_wait(future, timeout_ms) (ftr_wait_((struct ftr_header*)(future), (timeout_ms)))
+
 #define ftr_get(future, timeout_ms, dest) (ftr_get_((struct ftr_header*)(future), (timeout_ms), (void*)(dest), sizeof(*(dest)), sizeof((*(dest))=future->out_value)))
 
 #define ftr_complete(future, val) ((future)->in_value=(val), ftr_complete_((struct ftr_header*)(future)))
@@ -142,6 +144,9 @@ int ftr_wait_(struct ftr_header* fh, int32_t timeout_ms) {
     if (fh->is_set) {
         mtx_unlock(&fh->mtx);
         return ftr_success;
+    }
+    if (timeout_ms == 0) {
+        return ftr_timedout;
     }
 
     struct timespec start, end;

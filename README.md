@@ -65,6 +65,10 @@ Completes the `future` with the given `value`. If there's a thread waiting on `f
 
 Release a future object that was created with `ftr_new`.
 
+##### `const char* ftr_errorstr(int err)`
+
+Returns a description for one of the [Error codes](#error-codes).
+
 ## Error codes
 
 - `ftr_success` -> Code returned on success.
