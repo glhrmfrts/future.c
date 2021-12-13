@@ -146,6 +146,7 @@ int ftr_wait_(struct ftr_header* fh, int32_t timeout_ms) {
         return ftr_success;
     }
     if (timeout_ms == 0) {
+        mtx_unlock(&fh->mtx);
         return ftr_timedout;
     }
 
@@ -385,6 +386,40 @@ bool ftr_test_tryagain() {
     return true;
 }
 
+bool ftr_test_wait() {
+    printf("ftr_test_wait\n");
+
+    int_future_t* fut = ftr_new(int_future_t);
+
+    thrd_t thread = {0};
+
+    thrd_create(&thread, run_async_task_veryslow, fut);
+   
+    int result = 0;
+    int err = ftr_timedout;
+
+    while (err == ftr_timedout) {
+        err = ftr_wait(fut, 0);
+        printf("ftr_test_wait: %s\n", ftr_errorstr(err));
+
+        if (err != ftr_timedout && err != ftr_success) {
+            thrd_join(thread, NULL);
+            ftr_delete(fut);
+            return false;
+        }
+
+        thrd_sleep(&(struct timespec){.tv_sec=1}, NULL);
+    }
+
+    err = ftr_get(fut, 4 * 1000, &result);
+    assert(err == ftr_success);
+    assert(result == 42);
+
+    thrd_join(thread, NULL);
+    ftr_delete(fut);
+    return true;
+}
+
 struct data {
     char name[64];
     int x;
@@ -442,6 +477,7 @@ bool ftr_runtest() {
         ftr_test_success() &&
         ftr_test_timedout() &&
         ftr_test_tryagain() &&
+        ftr_test_wait() &&
         ftr_test_struct()
     );
 }
