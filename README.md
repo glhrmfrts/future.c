@@ -39,6 +39,41 @@ void f() {
 }
 ```
 
+## Docs
+
+##### `ftr_of(Type)`
+
+Macro to create a struct type that will hold a value of `Type`. It's meant to be used as `typedef ftr_of(Type) FutureType`.
+
+##### `FutureType* ftr_new(FutureType)`
+
+Allocate and initialize a future of type `FutureType`, that is, the type you typedef'ed with ftr_of.
+
+##### `int ftr_get(FutureType* future, int32_t timeout_ms, Type* dest)`
+
+Get the value of the `future` and place it in `dest`, or waits up to `timeout_ms` milliseconds if not ready yet. Returns 0 on success or one of the [Error codes](#error-codes).
+
+##### `int ftr_wait(FutureType* future, int32_t timeout_ms)`
+
+Waits up to `timeout_ms` milliseconds for the `future` to be complete. Returns 0 on success or one of the [Error codes](#error-codes).
+
+##### `int ftr_complete(FutureType* future, Type value)`
+
+Completes the `future` with the given `value`. If there's a thread waiting on `ftr_get` that thread is signaled and the value is received there. Returns 0 on success or one of the [Error codes](#error-codes).
+
+##### `void ftr_delete(FutureType* future)`
+
+Release a future object that was created with `ftr_new`.
+
+## Error codes
+
+- `ftr_success` -> Code returned on success.
+- `ftr_invalid` -> The future object is in a invalid state.
+- `ftr_timedout` -> The operation timed out.
+- `ftr_nomem` -> No memory available.
+- `ftr_destsize` -> The size of the `dest` parameter in `ftr_get` is not enough to hold the future's value.
+- `ftr_error` -> Other unknown error ocurred.
+
 # LICENSE
 
 Public domain.
